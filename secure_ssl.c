@@ -21,7 +21,12 @@ int main() {
   SSL_CTX * ctx = SSL_CTX_new(SSLv23_client_method());
   SSL * ssl;
 
-  if(! SSL_CTX_load_verify_locations(ctx, "TrustStore.pem", NULL)) {
+  if (NULL == ctx) {
+    printf("ctx is NULL\n");
+    exit(1);
+  }
+
+  if(!SSL_CTX_load_verify_locations(ctx, "ca-cert.pem", NULL)) {
         // Failed to load trusted certificates from file
         printf("Fail on loading TrustStore.pem\n");
   }
