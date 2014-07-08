@@ -2,7 +2,7 @@ CC=cc
 CFLAGS=-g -Wall -Wmissing-prototypes -Wno-missing-field-initializers
 LDFLAGS=
 LIBRARIES += -lcrypto -lssl
-SOURCES=secure_ssl.c
+SOURCES=handshake.c
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE=sslcav
 

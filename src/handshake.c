@@ -1,9 +1,4 @@
-/* OpenSSL headers */
-
-#include "openssl/bio.h"
-#include "openssl/ssl.h"
-#include "openssl/err.h"
-
+#include "handshake.h"
 
 void init_openssl() {
   /* Initializing OpenSSL */
@@ -13,10 +8,13 @@ void init_openssl() {
   OpenSSL_add_all_algorithms();
 }
 
-int main() {
+int test_self_signed_ssl_certificate() {
+  return 0;
+}
+
+int test_ssl_certificate() {
 
   init_openssl();
-
 
   SSL_CTX * ctx = SSL_CTX_new(SSLv23_client_method());
   SSL * ssl;
@@ -26,9 +24,9 @@ int main() {
     exit(1);
   }
 
-  if(!SSL_CTX_load_verify_locations(ctx, "ca-cert.pem", NULL)) {
-        // Failed to load trusted certificates from file
-        printf("Fail on loading TrustStore.pem\n");
+  if(!SSL_CTX_load_verify_locations(ctx, NULL ,"/etc/ssl/certs")) {
+    // Failed to load trusted certificates from file
+    printf("Fail on loading TrustStore.pem\n");
   }
 
   BIO *bio;
@@ -60,43 +58,11 @@ int main() {
   }
 
   // Verify certificate
-   if(SSL_get_verify_result(ssl) != X509_V_OK) {
-     // Problem in certificate
-     printf("CERTIFCATE IS BROKEN\n");
-   }
-
-  char *request = "GET / HTTP/1.1\x0D\x0AHost: www.verisign.com\x0D\x0A\x43onnection: Close\x0D\x0A\x0D\x0A";
-  int request_len = strlen(request);
-
-  // Send the request
-  BIO_write(bio, request, request_len);
-
-  char response[1024];
-  int response_len = sizeof(response);
-
-  // Read respone
-  for(;;) {
-
-    int bytes_read = BIO_read(bio, response, response_len);
-
-    if (bytes_read == 0) {
-      // Connection is closed
-      break;
-    } else if (bytes_read < 0) {
-      // Error
-      // Check if connection can be retried
-      break;
-      if (!BIO_should_retry(bio)) {
-        // Cannot retry, handle failure
-      }
-      // Handle the the retry
-    }
-
-    // There is a response
-    // Put null charecter at end of read bytes
-    response[bytes_read] = '\0';
-    printf("%s", response);
-
+  if(SSL_get_verify_result(ssl) != X509_V_OK) {
+    // Problem in certificate
+    printf("CERTIFCATE IS BROKEN\n");
+  } else {
+    printf("CERTIFCATE IS GOOD\n");
   }
 
   // Clean context structure
@@ -108,5 +74,15 @@ int main() {
   /* To free it from memory, use this line */
   BIO_free_all(bio);
 
+  return 0;
+}
+
+int main() {
+
+  int err = test_ssl_certificate();
+
+  if (err != 0) {
+    exit(1);
+  }
   return 0;
 }
