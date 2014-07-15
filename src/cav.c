@@ -1,5 +1,9 @@
 #include "cav.h"
 
+typedef int (*orig_SSL_get_verify_result_f_type)(const SSL *ssl);
+typedef int (*orig_do_handshake_f_type)(SSL *s);
+typedef int (*orig_SSL_connect_f_type)(SSL *s);
+
 long SSL_get_verify_result(const SSL *ssl) {
   printf("Hijacked SSL_get_verify_result\n");
   return 0;
