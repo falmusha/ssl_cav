@@ -15,28 +15,27 @@ long SSL_get_verify_result(const SSL *ssl) {
     return err;
   } else {
     // Call the original SSL_get_verify_result from openssl
-    // RTLD_NEXT simply looks at the next library 
-    // with a definition for SSL_get_verify_result 
+    // RTLD_NEXT simply looks at the next library with the method definition
     orig_SSL_get_verify_result_f_type orig_SSL_get_verify_result;
     orig_SSL_get_verify_result = (orig_SSL_get_verify_result_f_type)dlsym(RTLD_NEXT,"SSL_get_verify_result");
     return orig_SSL_get_verify_result(ssl);
   }
-
-  return 0;
 }
 
 int SSL_do_handshake(SSL *s) {
 
   printf("SSL_do_handshake(): Hijacked\n");
-
+  int err = 0; 
+  if (0 != (err = verify_cert(ssl))) {
+    return err;
+  } 
+  else {
   // Call the original SSL_do_handshake from openssl
-  // RTLD_NEXT simply looks at the next library 
-  // with a definition for SSL_do_handshake  
+  // RTLD_NEXT simply looks at the next library with the method definition 
   orig_do_handshake_f_type orig_do_handshake;
   orig_do_handshake = (orig_do_handshake_f_type) dlsym(RTLD_NEXT, "SSL_do_handshake");
-  return SSL_do_handshake(s);
-
-  return -1;
+  return orig_do_handshake(s);
+   }
 }
 
 int SSL_connect(SSL *s) {  
@@ -46,10 +45,10 @@ int SSL_connect(SSL *s) {
   int err = 0; 
   if (0 != (err = verify_cert(s))) {
     return err;
-  } else {
+  } 
+  else {
     // Call the original SSL_Connect from openssl
-    // RTLD_NEXT simply looks at the next library 
-    // with a definition for SSL_Connect
+    // RTLD_NEXT simply looks at the next library with the method definition 
     orig_SSL_connect_f_type orig_SSL_connect;
     orig_SSL_connect = (orig_SSL_connect_f_type) dlsym(RTLD_NEXT, "SSL_connect");
     return orig_SSL_connect(s);
