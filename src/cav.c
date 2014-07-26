@@ -11,6 +11,8 @@ long SSL_get_verify_result(const SSL *ssl) {
 
   printf("SSL_get_verify_result(): Hijacked\n");
   int err = 0; 
+
+  //Is it a problem that a const value is being passed into veridy_cert?
   if (0 != (err = verify_cert(ssl))) {
     return err;
   } else {
@@ -26,7 +28,7 @@ int SSL_do_handshake(SSL *s) {
 
   printf("SSL_do_handshake(): Hijacked\n");
   int err = 0; 
-  if (0 != (err = verify_cert(ssl))) {
+  if (0 != (err = verify_cert(s))) {
     return err;
   } 
   else {
@@ -37,6 +39,7 @@ int SSL_do_handshake(SSL *s) {
   return orig_do_handshake(s);
    }
 }
+
 
 int SSL_connect(SSL *s) {  
 
@@ -54,6 +57,8 @@ int SSL_connect(SSL *s) {
     return orig_SSL_connect(s);
   }
 }
+
+
 
 int verify_cert(SSL *s) {
 
