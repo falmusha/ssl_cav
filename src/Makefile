@@ -1,4 +1,4 @@
-CC=cc
+CC=gcc
 CFLAGS=-g -Wall -Wmissing-prototypes -Wno-missing-field-initializers
 LDFLAGS=
 LIBRARIES += -lcrypto -lssl

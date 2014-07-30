@@ -8,6 +8,14 @@
 #include <openssl/pem.h>
 #include "cav.h"
 
+/*#define CA_FILE "/home/master/work/ssl_cav/src/ca-bundle.crt"*/
+#define CA_DIR "/usr/lib/ssl/certs"
+/*#define CRL_FILE "CRLfile.pem"*/
+
+#define MAX_LENGTH 1024
+
+#define cav_error(msg) handle_error(__FILE__, __LINE__, msg)
+
 //These typedefs just point to aliases with function types and arguments identical to the functions being hijacked.
 typedef long (*orig_SSL_get_verify_result_f_type)(const SSL *ssl);
 typedef int (*orig_do_handshake_f_type)(SSL *s);
@@ -38,42 +46,35 @@ int SSL_do_handshake(SSL *s) {
     return err;
   } 
   else {
-  // Call the original SSL_do_handshake from openssl
-  // RTLD_NEXT simply looks at the next library with the method definition 
-  orig_do_handshake_f_type orig_do_handshake;
-  orig_do_handshake = (orig_do_handshake_f_type) dlsym(RTLD_NEXT, "SSL_do_handshake");
-  return orig_do_handshake(s);
-   }
-}
-
-
-int SSL_connect(SSL *s) {  
-
-  printf("SSL_connect(): Hijacked\n");
-  
-  int err = 0; 
-  if (0 != (err = verify_cert(s))) {
-    return err;
-  } 
-  else {
-    // Call the original SSL_Connect from openssl
+    // Call the original SSL_do_handshake from openssl
     // RTLD_NEXT simply looks at the next library with the method definition 
-    orig_SSL_connect_f_type orig_SSL_connect;
-    orig_SSL_connect = (orig_SSL_connect_f_type) dlsym(RTLD_NEXT, "SSL_connect");
-    return orig_SSL_connect(s);
+    orig_do_handshake_f_type orig_do_handshake;
+    orig_do_handshake = (orig_do_handshake_f_type) dlsym(RTLD_NEXT, "SSL_do_handshake");
+    return orig_do_handshake(s);
   }
 }
 
-int write_X509_to_BIO(X509 * cert, BIO * bio) {
+int verify_callback(int ok, X509_STORE_CTX * store) {
 
-  if (!PEM_write_bio_X509(bio, cert)) {
-    /* Error */
-    return -1;
+  char buf[256];
+  if(!ok) {
+
+    X509 * cert = X509_STORE_CTX_get_current_cert(store);
+
+    fprintf(stderr, "Callback Error: %s\n", X509_verify_cert_error_string(store->error));
+    X509_NAME_oneline(X509_get_issuer_name(cert), buf, sizeof(buf));
+    fprintf(stderr, "\tissuer = %s\n", buf);
+    X509_NAME_oneline(X509_get_subject_name(cert), buf, sizeof(buf));
+    fprintf(stderr, "\tsubject = %s\n", buf);
+
   }
 
-  return 0;
+  return ok; 
 }
 
+void handle_error(const char *file, int lineno, const char *msg) {
+  fprintf(stderr, "CAV ERROR in %s:%i %s\n", file, lineno, msg); ERR_print_errors_fp(stderr);
+}
 
 int verify_cert(SSL *s) {
 
@@ -86,128 +87,141 @@ int verify_cert(SSL *s) {
     return (err = -1);
   }
 
-  // Initilize new BIO to write certifcate to
-  BIO * bio = BIO_new(BIO_s_mem());
-  
-  if (NULL == bio) {
-    printf("verify_cert(): Failed to allocate memory to BIO\n");
+  // Find the peer certificate chain
+  STACK_OF(X509) * sk = SSL_get_peer_cert_chain(s);
+
+  if (NULL == sk) {
+    printf("verify_cert(): Certificate chain is not available\n");
     return (err = -1);
   }
 
-  if (0 != (err = write_X509_to_BIO(peer_cert, bio))) {
-    printf("verify_cert(): Failed to fill BIO with X509 certificate\n");
-    return -1;
+  if (0 != (err = verify_X509_cert_chain(sk))) {
+    printf("verify_cert(): Failed verify X509 certificate chain\n");
+    return (err = -1);
   }
-
-  printf("verify_cert(): Certificate is presented by peer\n");
 
   return 0;
 }
 
+int verify_X509_cert_chain(STACK_OF(X509) * sk) {
 
+  int err = 0;
 
-#define CA_FILE "CAfile.pem"
-#define CA_DIR "/etc/ssl"
-#define CRL_FILE "CRLfile.pem"
-#define CLIENT_CERT "cert.pem"
+  X509_STORE * store;
 
-int verify_callback(int ok, X509_STORE_CTX *stor) {
-
-  if(!ok) {
-
-    fprintf(stderr, "Error: %s\n",
-        X509_verify_cert_error_string(stor->error)
-    );
-  }
-
-  return ok; 
-}
-
-void handle_error(const char *file, int lineno, const char *msg) {
-  fprintf(stderr, "** %s:%i %s\n", file, lineno, msg); ERR_print_errors_fp(stderr);
-}
-
-#define int_error(msg) handle_error(__FILE__, __LINE__, msg)
-
-int verify_X509_cert(X509 * cert) {
-
-  /*X509           *cert;*/
-  X509_STORE     *store;
-  X509_LOOKUP    *lookup;
-  X509_STORE_CTX *verify_ctx;
-  FILE           *fp;
-
-  /* first read the client certificate */
-  if (!(fp = fopen(CLIENT_CERT, "r"))) {
-    int_error("Error reading client certificate file");
-    return -1;
-  }
-
-  // Read certifcate from BIO
-  if (!(cert = PEM_read_X509(fp, NULL, NULL, NULL))) {
-    int_error("Error reading client certificate in file");
-    return -1;
-  }
-
-  fclose(fp);
-
-  /* create the cert store and set the verify callback  */
+  /* create the cert store */
   if (!(store = X509_STORE_new())) {
-    int_error("Error creating X509_STORE_CTX object");
+    cav_error("Error creating X509_STORE_CTX object");
     return -1;
   }
 
+  /* set the verify callback */
   X509_STORE_set_verify_cb_func(store, verify_callback);
 
   /* load the CA certificates and CRLs */
-  if (X509_STORE_load_locations(store, CA_FILE, CA_DIR) != 1) {
-    int_error("Error loading the CA file or directory"); 
+  if (X509_STORE_load_locations(store, NULL, CA_DIR) != 1) {
+    cav_error("Error loading the CA file or directory"); 
     return -1;
   }
 
   if (X509_STORE_set_default_paths(store) != 1) {
-    int_error("Error loading the system-wide CA certificates");
+    cav_error("Error loading the system-wide CA certificates");
     return -1;
   }
 
-  if (!(lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file()))) {
-    int_error("Error creating X509_LOOKUP object");
-    return -1;
+  unsigned len = sk_num(sk);
+  unsigned i;
+
+  X509 * cert;
+  int verified = 0;
+
+  for(i=0; i<len; i++) {
+
+    cert = (X509 *) sk_value(sk, i);
+    if (0 == (err = verify_X509_cert(cert, store))) {
+      verified = 1;
+      break;
+    }
+
   }
 
-  if (X509_load_crl_file(lookup, CRL_FILE, X509_FILETYPE_PEM) != 1) {
-    int_error("Error reading the CRL file");
-    return -1;
-  }
+  X509_STORE_free(store);
 
-  /* enabling verification against CRLs is not possible in prior versions */
-#if (OPENSSL_VERSION_NUMBER > 0x00907000L)
-  /* set the flags of the store so that CRLs are consulted */
-  X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
-#endif
+  if (verified) {
+    return 0;
+  } else {
+    return (err = -1);
+  }
+}
+
+int verify_X509_cert(X509 * cert, X509_STORE * store) {
+
+  X509_STORE_CTX * verify_ctx;
 
   /* create a verification context and initialize it  */
   if (!(verify_ctx = X509_STORE_CTX_new())) {
-    int_error("Error creating X509_STORE_CTX object");
+    cav_error("Error creating X509_STORE_CTX object");
     return -1;
   }
   /* X509_STORE_CTX_init did not return an error conditionin prior versions */
 
 #if (OPENSSL_VERSION_NUMBER > 0x00907000L)
   if (X509_STORE_CTX_init(verify_ctx, store, cert, NULL) != 1) {
-    int_error("Error initializing verification context"); 
+    cav_error("Error initializing verification context"); 
     return -1;
   }
 #else
   X509_STORE_CTX_init(verify_ctx, store, cert, NULL);
 #endif
 
+  if (NULL == verify_ctx) {
+    cav_error("Error initializing verification context is NULL"); 
+  }
+
   /* verify the certificate */
   if (X509_verify_cert(verify_ctx) != 1) {
-    int_error("Error verifying the certificate");
+    cav_error("Error verifying the certificate");
     return -1;
   } else {
     printf("Certificate verified correctly!\n");
+  }
+
+  X509_STORE_CTX_free(verify_ctx);
+
+  return 0;
+}
+
+void print_certificate(X509 * cert) {
+
+  char subj[MAX_LENGTH+1  ];
+  char issuer[MAX_LENGTH+1];
+
+  X509_NAME_oneline(X509_get_subject_name(cert), subj, MAX_LENGTH);
+  X509_NAME_oneline(X509_get_issuer_name(cert), issuer, MAX_LENGTH);
+
+  printf("certificate: %s\n", subj);
+  printf("\tissuer: %s\n\n", issuer);
+
+}
+
+void print_stack(STACK_OF(X509) * sk) {
+
+  unsigned len = sk_num(sk);
+  unsigned i;
+
+  X509 *cert;
+  printf("Begin Certificate Stack:\n");
+  for(i=0; i<len; i++) {
+    cert = (X509*) sk_value(sk, i);
+    print_certificate(cert);
+  }
+  printf("End Certificate Stack\n");
+}
+
+int write_X509_to_BIO(X509 * cert, BIO * bio) {
+
+  if (!PEM_write_bio_X509(bio, cert)) {
+    return -1;
   }
 
   return 0;
