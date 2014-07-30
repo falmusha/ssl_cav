@@ -3,14 +3,16 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include "cav.h"
 
-/*#define CA_FILE "/home/master/work/ssl_cav/src/ca-bundle.crt"*/
-#define CA_DIR "/usr/lib/ssl/certs"
-/*#define CRL_FILE "CRLfile.pem"*/
+#define CONFIG_FILE "/home/master/cavrc"
+#define CA_FILE cavrc.ca_file
+#define CA_DIR cavrc.ca_dir
+#define CAV_LOG cavrc.log_file
 
 #define MAX_LENGTH 1024
 
@@ -20,6 +22,14 @@
 typedef long (*orig_SSL_get_verify_result_f_type)(const SSL *ssl);
 typedef int (*orig_do_handshake_f_type)(SSL *s);
 typedef int (*orig_SSL_connect_f_type)(SSL *s);
+
+struct config_opt {
+  char ca_dir[32];
+  char ca_file[32];
+  char log_file[32];
+};
+
+struct config_opt cavrc;
 
 long SSL_get_verify_result(const SSL *ssl) {
 
@@ -54,21 +64,76 @@ int SSL_do_handshake(SSL *s) {
   }
 }
 
-int verify_callback(int ok, X509_STORE_CTX * store) {
+int init_config_file() {
+  
+  FILE * fp = NULL;
+  char * buff = NULL;
+  size_t buff_len;
+  size_t bytes_read = 0;
 
-  char buf[256];
-  if(!ok) {
+  char * option = malloc(32);
+  char * assignment = malloc(32);
 
-    X509 * cert = X509_STORE_CTX_get_current_cert(store);
+  if (0 != (fp = fopen(CONFIG_FILE, "r"))) {
+    while(!feof(fp)) {
+      if(fscanf(fp, "%s %s", option, assignment) == 2){
+        if(strcmp(option, "CA_DIR") == 0) {
+          memcpy(cavrc.ca_dir, assignment, 32);
+        }
 
-    fprintf(stderr, "Callback Error: %s\n", X509_verify_cert_error_string(store->error));
-    X509_NAME_oneline(X509_get_issuer_name(cert), buf, sizeof(buf));
-    fprintf(stderr, "\tissuer = %s\n", buf);
-    X509_NAME_oneline(X509_get_subject_name(cert), buf, sizeof(buf));
-    fprintf(stderr, "\tsubject = %s\n", buf);
+        if(strcmp(option, "CA_FILE") == 0) {
+          memcpy(cavrc.ca_file, assignment, 32);
+        }
 
+        if(strcmp(option, "LOG") == 0) {
+          memcpy(cavrc.log_file, assignment, 32);
+        }
+      }
+    }
+  } else {
+      printf("init_config_file(): error opening file\n");
   }
 
+  printf("init_config_file(): CA_DIR = %s, CA_FILE = %s, LOG_FILE = %s\n", cavrc.ca_dir, cavrc.ca_file, cavrc.log_file);
+
+  free(buff);
+  free(option);
+  free(assignment);
+
+  fclose(fp);
+
+  return 0; 
+}
+
+int verify_callback(int ok, X509_STORE_CTX * store) {
+
+
+  FILE * fp = NULL;
+  char buf[256];
+
+  if (0 != (fp = fopen(CAV_LOG, "w"))) {
+    printf("verify_callback(): failed to open file\n");
+  }
+
+  X509 * cert = X509_STORE_CTX_get_current_cert(store);
+
+  if(!ok) {
+    fprintf(stderr, "Callback Error: %s\n", X509_verify_cert_error_string(store->error));
+    fprintf(fp, "Callback Error: %s\n", X509_verify_cert_error_string(store->error));
+  }
+
+  fprintf(stderr, "No Callback Error:\n");
+  fprintf(fp, "No Callback Error:\n");
+
+  X509_NAME_oneline(X509_get_issuer_name(cert), buf, sizeof(buf));
+  fprintf(stderr, "\tissuer = %s\n", buf);
+  fprintf(fp, "\tissuer = %s\n", buf);
+
+  X509_NAME_oneline(X509_get_subject_name(cert), buf, sizeof(buf));
+  fprintf(stderr, "\tsubject = %s\n", buf);
+  fprintf(fp, "\tsubject = %s\n", buf);
+
+  fclose(fp);
   return ok; 
 }
 
@@ -78,6 +143,7 @@ void handle_error(const char *file, int lineno, const char *msg) {
 
 int verify_cert(SSL *s) {
 
+  init_config_file();
   int err = 0;
 
   // Find the peer certificate
@@ -121,11 +187,6 @@ int verify_X509_cert_chain(STACK_OF(X509) * sk) {
   /* load the CA certificates and CRLs */
   if (X509_STORE_load_locations(store, NULL, CA_DIR) != 1) {
     cav_error("Error loading the CA file or directory"); 
-    return -1;
-  }
-
-  if (X509_STORE_set_default_paths(store) != 1) {
-    cav_error("Error loading the system-wide CA certificates");
     return -1;
   }
 
@@ -181,14 +242,15 @@ int verify_X509_cert(X509 * cert, X509_STORE * store) {
   /* verify the certificate */
   if (X509_verify_cert(verify_ctx) != 1) {
     cav_error("Error verifying the certificate");
+    X509_STORE_CTX_free(verify_ctx);
     return -1;
   } else {
     printf("Certificate verified correctly!\n");
+    X509_STORE_CTX_free(verify_ctx);
+    return 0;
   }
 
-  X509_STORE_CTX_free(verify_ctx);
 
-  return 0;
 }
 
 void print_certificate(X509 * cert) {
