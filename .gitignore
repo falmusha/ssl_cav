@@ -1,4 +1,5 @@
-sslcav
+*sslcav
+*handshake
 # Object files
 *.o
 *.ko
@@ -22,3 +23,9 @@ sslcav
 *.i*86
 *.x86_64
 *.hex
+
+# vagrant
+.vagrant
+
+# OSX
+*.DS_Store

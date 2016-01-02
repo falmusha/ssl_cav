@@ -1,16 +1,20 @@
-CC=gcc
-CFLAGS=-g -Wall -Wmissing-prototypes -Wno-missing-field-initializers
-LDFLAGS=
-LIBRARIES += -lcrypto -lssl
-SOURCES=handshake.c
+CC = gcc
+CFLAGS = -g -w -c -fpic -std=c99
+LIBRARIES = -lcrypto -lssl
+SOURCES=cav.c verify.c util.c
 OBJECTS=$(SOURCES:.c=.o)
-EXECUTABLE=sslcav
 
-all: $(OBJECTS) cav
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(EXECUTABLE) $(OBJECTS) $(LIBRARIES)
+all: handshake libcav
 
-cav: 
-	$(CC) $(CFLAGS) $(LDFLAGS) -fPIC -shared -o cav.so cav.c
+%.o: %.c
+	$(CC) -o $@ $< $(CFLAGS) $(LIBRARIES) -I.
+
+libcav: $(OBJECTS)
+	$(CC) -shared -o libcav.so $(OBJECTS)
+
+handshake:
+	$(CC) -std=c99 -o handshake handshake.c -I. $(LIBRARIES)
 
 clean:
-	rm $(EXECUTABLE) $(OBJECTS) cav.so
+	rm -f *.o *.so handshake
+
