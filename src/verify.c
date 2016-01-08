@@ -18,15 +18,6 @@ int verify_cert(const SSL *s) {
   init_config_file();
   int err = 0;
 
-  // Find the peer certificate
-  X509 * peer_cert = SSL_get_peer_certificate(s);
-  if (NULL == peer_cert) {
-    DEBUG_PRINT("%s\n", "Certificate is not presented by peer");
-    return (err = -1);
-  } else {
-    DEBUG_PRINT("%s\n", "Found peer certificate");
-  }
-
   // Find the peer certificate chain
   STACK_OF(X509) * sk = SSL_get_peer_cert_chain(s);
 
