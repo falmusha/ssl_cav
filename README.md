@@ -106,5 +106,6 @@ CAV picks these configuration every time a new SSL request is established.
 
 
 # License
-ssl_cav is released under the MIT license. See LICENSE.md for details.
+ssl_cav is released under the MIT license. See
+[LICENSE.md](https://github.com/iFahad7/ssl_cav/blob/master/LICENSE.md) for details.
 
